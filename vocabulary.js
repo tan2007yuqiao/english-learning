@@ -8,6 +8,25 @@
     window.addEventListener('focus',updateDate);
     document.addEventListener('visibilitychange',()=>{if(!document.hidden)updateDate()});
   }
+  function dashboardProgress(){
+    const total=deck.length||1, mastered=deck.filter(w=>state.records[w.id]?.status==='已掌握').length;
+    let listening=0;try{const r=JSON.parse(localStorage.getItem('linguaflow.listening.v1')||'{}');listening=Object.keys(r).length;}catch{}
+    let quiz=0;try{quiz=Number(localStorage.getItem('linguaflow.quiz.completed')||0);}catch{}
+    let speaking=0;try{speaking=Number(localStorage.getItem('linguaflow.speaking.count')||0);}catch{}
+    const pct=(n,max)=>Math.max(0,Math.min(100,Math.round(n/max*100)));
+    const values=[pct(mastered,Math.min(total,20)),pct(listening,12),pct(speaking,5)];
+    const rows=document.querySelectorAll('#dashboardView .progress-row');rows.forEach((row,i)=>{if(!values[i])values[i]=0;row.querySelector('i').style.width=values[i]+'%';row.querySelector('strong').textContent=values[i]+'%';});
+    const cards=document.querySelectorAll('#dashboardView .lesson-card');
+    if(cards[0]){cards[0].querySelector('p').textContent=`已掌握 ${mastered} / 20 个今日目标词汇`;cards[0].querySelector('i').style.width=values[0]+'%';}
+    if(cards[1]){cards[1].querySelector('p').textContent=`已完成 ${listening} / 12 套听力练习`;cards[1].querySelector('i').style.width=values[1]+'%';}
+    if(cards[2]){cards[2].querySelector('p').textContent=quiz?`已完成 ${quiz} 次快速测验`:'完成一套词汇测验';cards[2].querySelector('i').style.width=quiz?'100%':'0%';}
+    if(cards[3]){cards[3].querySelector('p').textContent=`已跟读 ${speaking} / 5 句`;cards[3].querySelector('i').style.width=values[2]+'%';}
+    const dates=new Set();state.events.forEach(e=>{if(e.at)dates.add(new Date(e.at).toISOString().slice(0,10));});
+    try{const r=JSON.parse(localStorage.getItem('linguaflow.listening.v1')||'{}');Object.values(r).forEach(x=>{if(x.at)dates.add(new Date(x.at).toISOString().slice(0,10));});}catch{}
+    try{const d=new Date(), labels=[], cells=document.querySelectorAll('#dashboardView .day');for(let i=6;i>=0;i--){const x=new Date(d);x.setDate(d.getDate()-i);labels.push(x.toLocaleDateString('zh-CN',{weekday:'short'}));const cell=cells[6-i];if(cell){cell.textContent=labels[labels.length-1].replace('周','');cell.className='day';const key=x.toISOString().slice(0,10);if(dates.has(key))cell.classList.add('done');if(i===0)cell.classList.add('today');}}}catch{}
+    const streak=document.querySelector('#dashboardView .hero-stat strong');if(streak){let n=0,d=new Date();while(dates.has(d.toISOString().slice(0,10))){n++;d.setDate(d.getDate()-1);}streak.textContent=String(n).padStart(2,'0');}
+  }
+  window.addEventListener('learning-progress-updated',dashboardProgress);
   const $ = s => document.querySelector(s);
   const groups = {
     '商务沟通': [
@@ -134,14 +153,14 @@
   // The dashboard card uses the same persisted record as the full vocabulary deck.
   function daily(){const w=deck[wi%deck.length];$('#word').textContent=w.word;$('#pron').textContent=w.topic;$('#meaning').textContent=w.meaning;$('#flip').textContent='查看例句';const known=state.records[w.id]?.status==='已掌握';$('#mastered').disabled=false;$('#mastered').textContent='已掌握';$('#mastered').style.background=known?'#102f36':'#e5efee';$('#mastered').style.color=known?'white':'#174a46';$('#mastered').setAttribute('aria-pressed',String(known));$('#mastered').title=known?'点击取消掌握':'点击标记为已掌握';}
   $('#nextWord').onclick=e=>{e.preventDefault();wi=(wi+1)%deck.length;daily()};$('#flip').onclick=()=>{const w=deck[wi%deck.length];$('#meaning').textContent=$('#meaning').textContent===w.example?w.meaning:w.example};
-  $('#mastered').onclick=()=>{const w=deck[wi%deck.length],rec=state.records[w.id]||{},now=Date.now();if(rec.status==='已掌握'){state.records[w.id]={...rec,status:'未学习',last:now};state.events.push({id:w.id,status:'取消掌握',at:now});save();daily();toast('已取消掌握状态');return}state.records[w.id]={...rec,status:'已掌握',count:(rec.count||0)+1,last:now};state.events.push({id:w.id,status:'已掌握',at:now});save();daily();toast('词汇学习记录已保存')};
-  nav[0].onclick=()=>{daily();show(0)};
+  $('#mastered').onclick=()=>{const w=deck[wi%deck.length],rec=state.records[w.id]||{},now=Date.now();if(rec.status==='已掌握'){state.records[w.id]={...rec,status:'未学习',last:now};state.events.push({id:w.id,status:'取消掌握',at:now});save();daily();window.dispatchEvent(new Event('learning-progress-updated'));toast('已取消掌握状态');return}state.records[w.id]={...rec,status:'已掌握',count:(rec.count||0)+1,last:now};state.events.push({id:w.id,status:'已掌握',at:now});save();daily();window.dispatchEvent(new Event('learning-progress-updated'));toast('词汇学习记录已保存')};
+  nav[0].onclick=()=>{daily();show(0);dashboardProgress()};
   const speaking=document.createElement('div');speaking.id='speakingView';speaking.className='view';
   speaking.innerHTML='<div class="study-shell"><button class="back" id="speakingBack">← 返回概览</button><div class="panel" style="margin-top:20px"><div class="eyebrow">SPEAKING PRACTICE</div><h2>口语跟读</h2><p>听示范后，自己大声跟读。可反复播放，练习自然停顿。</p><p id="speakingLine" style="font-size:24px;line-height:1.6"></p><p id="speakingMeaning"></p><div class="v-actions"><button id="speakingPlay">▶ 播放示范</button><button id="speakingNext">下一句 →</button></div><p id="speakingStatus" role="status"></p></div></div>';
   $('main').append(speaking);
   const lines=[['Could you clarify the last point?','你能解释一下最后一点吗？'],['I look forward to working with you.','我期待与你合作。'],['Could I get a latte with oat milk, please?','请给我一杯燕麦奶拿铁。'],['Would Friday morning work for you?','星期五上午你方便吗？']];let lineIndex=0;
   function renderSpeaking(){$('#speakingLine').textContent=lines[lineIndex][0];$('#speakingMeaning').textContent=lines[lineIndex][1];$('#speakingStatus').textContent=`第 ${lineIndex+1} / ${lines.length} 句`;}
-  $('#speakingNext').onclick=()=>{if(window.speechSynthesis)speechSynthesis.cancel();lineIndex=(lineIndex+1)%lines.length;renderSpeaking()};
+  $('#speakingNext').onclick=()=>{if(window.speechSynthesis)speechSynthesis.cancel();lineIndex=(lineIndex+1)%lines.length;localStorage.setItem('linguaflow.speaking.count',String(Math.min(5,Number(localStorage.getItem('linguaflow.speaking.count')||0)+1)));window.dispatchEvent(new Event('learning-progress-updated'));renderSpeaking()};
   $('#speakingPlay').onclick=()=>{if(!window.speechSynthesis){$('#speakingStatus').textContent='此浏览器不支持语音播放，请根据文字跟读。';return;}speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(lines[lineIndex][0]);u.lang='en-US';u.rate=.8;u.onerror=()=>$('#speakingStatus').textContent='播放失败，请检查设备英语语音支持。';speechSynthesis.speak(u)};
   $('#speakingBack').onclick=()=>{if(window.speechSynthesis)speechSynthesis.cancel();show(0)};
   function openExtra(id){show(0);$('#dashboardView').classList.remove('active');$('#'+id).classList.add('active');window.scrollTo(0,0);}
@@ -157,5 +176,5 @@
   const statusStyle=document.createElement('style');
   statusStyle.textContent='.v-actions #vMaster{background:#e5efee;color:#174a46;opacity:1}.v-actions #vMaster.is-mastered{background:#102f36;color:white;opacity:1}.v-intro-count{display:block;font-size:15px;color:#29434d;font-weight:700}.v-intro-note{display:block;margin-top:5px;font-size:12px;color:#71808f}.v-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:0;padding:0;overflow:hidden;background:#e4f2ed}.v-stat{padding:17px 20px;border-right:1px solid rgba(13,139,131,.12)}.v-stat:last-child{border-right:0}.v-stat strong{display:block;font-size:23px;color:#174a46;line-height:1.1}.v-stat span{display:block;margin-top:6px;font-size:12px;color:#5e7777}.v-controls{margin-top:20px}@media(max-width:600px){.v-summary{grid-template-columns:repeat(2,1fr)}.v-stat:nth-child(2){border-right:0}.v-stat{border-bottom:1px solid rgba(13,139,131,.12)}}';
   document.head.append(statusStyle);
-  render();daily();show(0);
+  render();daily();show(0);dashboardProgress();
 })();
